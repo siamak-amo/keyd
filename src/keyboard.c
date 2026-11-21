@@ -488,6 +488,48 @@ static long calculate_main_loop_timeout(struct keyboard *kbd, long time)
 	return timeout ? timeout - time : 0;
 }
 
+static inline void keyboard_safe_add2code (uint8_t *key, int add)
+{
+    *key += add;
+    if (*key == 1+KEY_EQUAL)      *key = KEY_1;
+    if (*key == 1+KEY_RIGHTBRACE) *key = KEY_Q;
+    if (*key == 1+KEY_APOSTROPHE) *key = KEY_A;
+    if (*key == 1+KEY_SLASH)      *key = KEY_Z;
+}
+
+static inline void handle_inc_latch(struct keyboard *kbd,
+                                    uint8_t code, uint8_t last_code,
+                                    uint8_t last_mods)
+{
+    if (code == KEY_BACKSPACE &&
+        (kbd->keystate[KEYD_LEFTCTRL] || kbd->keystate[KEY_RIGHTCTRL])) {
+      if (last_code == code)
+          keyboard_safe_add2code(&kbd->incremental_latch_code, 1);
+      else {
+        kbd->incremental_latch_code = last_code + 1;
+      }
+
+      /* release the CTRL key. */
+      send_key(kbd, KEY_LEFTCTRL, 0);
+      send_key(kbd, KEY_RIGHTCTRL, 0);
+      /* send the incremented code. */
+      if (MOD_SHIFT & kbd->inc_latch_mods)
+          send_key(kbd, KEY_LEFTSHIFT, 1);
+      {
+          send_key(kbd, KEY_BACKSPACE, 1);
+          send_key(kbd, KEY_BACKSPACE, 0);
+          send_key(kbd, kbd->incremental_latch_code, 1);
+          send_key(kbd, kbd->incremental_latch_code, 0);
+      }
+    }
+    else {
+        /* reset the latch. */
+        kbd->incremental_latch_code = 0;
+        kbd->inc_latch_mods = last_mods;
+        send_key(kbd, code, 1);
+    }
+}
+
 static long process_descriptor(struct keyboard *kbd, uint8_t code,
 			       const struct descriptor *d, int dl,
 			       int pressed, long time)
@@ -523,6 +565,7 @@ static long process_descriptor(struct keyboard *kbd, uint8_t code,
 		mods = d->args[1].mods;
 		if (pressed) {
 			uint8_t active_mods;
+            uint8_t last_code;
 
 			/*
 			 * Permit variations of the same key
@@ -534,10 +577,11 @@ static long process_descriptor(struct keyboard *kbd, uint8_t code,
 
 			active_mods = update_mods(kbd, dl, mods);
 
+            last_code = kbd->last_repeatable_action.args[0].code;
 			kbd->last_repeatable_action = *d;
 			kbd->last_repeatable_action.args[1].mods = active_mods;
 
-			send_key(kbd, new_code, 1);
+            handle_inc_latch(kbd, code, last_code, active_mods);
 			clear_oneshot(kbd);
 		} else {
 			send_key(kbd, new_code, 0);

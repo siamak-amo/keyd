@@ -49,6 +49,7 @@ struct keyboard {
 
 	uint8_t last_pressed_output_code;
 	uint8_t last_pressed_code;
+    uint8_t incremental_latch_code, inc_latch_mods;
 
 	uint8_t oneshot_latch;
 
